@@ -23,7 +23,7 @@ cd iptv-to-m3u
 ## Usage
 1. Install requirements:
    ```bash
-   pip install aiohttp PyQt6
+   pip install -r requirements.txt
    ```
 2. Run the application:
    ```bash
