@@ -1,6 +1,6 @@
 import sys
 import asyncio
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLineEdit, QPushButton, QTextEdit, QLabel, QFileDialog, QProgressBar)
 from PyQt6.QtCore import pyqtSignal, QThread, Qt
 from PyQt6.QtGui import QFont
@@ -29,6 +29,148 @@ class Worker(QThread):
             self.error.emit(str(e))
 
 
+class MultiInfoTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Multi URL input
+        url_label = QLabel("🔗 Multiple URLs (one per line):")
+        url_label.setFont(QFont("", 12, QFont.Weight.Bold))
+        layout.addWidget(url_label)
+        self.multi_urls = QTextEdit()
+        self.multi_urls.setPlaceholderText("Paste multiple IPTV URLs here, one per line (get.php will be converted to player_api.php)...")
+        self.multi_urls.setMaximumHeight(100)
+        layout.addWidget(self.multi_urls)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        self.multi_fetch_btn = QPushButton("🔍 Fetch All Server Infos")
+        self.multi_fetch_btn.clicked.connect(self.fetch_multi_info)
+        btn_layout.addWidget(self.multi_fetch_btn)
+
+        self.clear_btn = QPushButton("🗑️ Clear")
+        self.clear_btn.clicked.connect(self.clear_all)
+        btn_layout.addWidget(self.clear_btn)
+
+        layout.addLayout(btn_layout)
+
+        # Multi results
+        results_label = QLabel("📊 Server Infos:")
+        results_label.setFont(QFont("", 12, QFont.Weight.Bold))
+        layout.addWidget(results_label)
+        self.multi_results = QTextEdit()
+        self.multi_results.setReadOnly(True)
+        layout.addWidget(self.multi_results)
+
+        self.multi_client = None
+
+    def clear_all(self):
+        self.multi_urls.clear()
+        self.multi_results.clear()
+
+    def clean_url(self, url_str):
+        """Clean and convert URL to player_api.php format, handling direct stream URLs."""
+        if not url_str or url_str.strip().lower() in ['m3u', '']:
+            return None
+        url = url_str.strip()
+        from urllib.parse import urlparse, urlunparse, parse_qs
+
+        parsed = urlparse(url)
+        username = None
+        password = None
+
+        if len(parsed.path.split('/')) >= 4 and not 'get.php' in url and not 'player_api.php' in url:
+            # Assume direct stream format: /username/password/id
+            path_parts = [p for p in parsed.path.split('/') if p]
+            if len(path_parts) >= 3:
+                username = path_parts[-3]
+                password = path_parts[-2]
+                # Reconstruct base URL
+                host_port = f"{parsed.scheme}://{parsed.netloc}"
+                # Construct player_api URL with username/password
+                url = f"{host_port}/player_api.php?username={username}&password={password}"
+        elif 'get.php' in url or 'player_api.php' in url:
+            # Extract from query
+            query = parse_qs(parsed.query)
+            username = query.get('username', [None])[0]
+            password = query.get('password', [None])[0]
+            if username and password:
+                host_port = f"{parsed.scheme}://{parsed.netloc}"
+                # Ensure player_api format
+                if 'get.php' in url:
+                    url = f"{host_port}/player_api.php?username={username}&password={password}"
+                else:
+                    url = f"{host_port}/player_api.php?username={username}&password={password}"
+            else:
+                return None
+        else:
+            # Standard URL with query
+            username = parsed.username or parse_qs(parsed.query).get('username', [None])[0]
+            password = parsed.password or parse_qs(parsed.query).get('password', [None])[0]
+            if username and password:
+                host_port = f"{parsed.scheme}://{parsed.netloc}"
+                url = f"{host_port}/player_api.php?username={username}&password={password}"
+            else:
+                return None
+
+        return url if username and password and url.startswith(('http://', 'https://')) else None
+
+    def fetch_multi_info(self):
+        urls_text = self.multi_urls.toPlainText().strip()
+        if not urls_text:
+            self.multi_results.setText("Please enter URLs.")
+            return
+
+        raw_urls = [url.strip() for url in urls_text.split('\n') if url.strip()]
+        cleaned_urls = []
+        for raw in raw_urls:
+            clean = self.clean_url(raw)
+            if clean:
+                cleaned_urls.append(clean)
+            else:
+                self.multi_results.append(f"Skipped invalid: {raw}")
+
+        if not cleaned_urls:
+            self.multi_results.setText("No valid URLs found after cleaning.")
+            return
+
+        self.multi_fetch_btn.setEnabled(False)
+        self.worker = Worker(self._fetch_multi_async, cleaned_urls)
+        self.worker.finished.connect(self._on_multi_finished)
+        self.worker.error.connect(self._on_multi_error)
+        self.worker.start()
+
+    async def _fetch_multi_async(self, urls):
+        results = {}
+        for url in urls:
+            try:
+                client = IPTVClient(url)
+                info = await client.get_server_info()
+                results[url] = info
+            except Exception as e:
+                results[url] = {"error": str(e)}
+        return results
+
+    def _on_multi_finished(self, results):
+        self.multi_fetch_btn.setEnabled(True)
+        output = ""
+        for url, info in results.items():
+            output += f"\n--- {url} ---\n"
+            if "error" in info:
+                output += f"Error: {info['error']}\n"
+            else:
+                display_info = {k: v for k, v in info.items() if k != "password"}
+                output += "\n".join([f"{k}: {v}" for k, v in display_info.items()]) + "\n"
+        self.multi_results.setText(output.strip())
+
+    def _on_multi_error(self, err):
+        self.multi_fetch_btn.setEnabled(True)
+        self.multi_results.setText(f"Error: {err}")
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -37,10 +179,19 @@ class MainWindow(QMainWindow):
 
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.setSpacing(10)
-        layout.setContentsMargins(20, 20, 20, 20)
-        
+        main_layout = QVBoxLayout(central)
+
+        # Tabs
+        self.tabs = QTabWidget()
+        main_layout.addWidget(self.tabs)
+
+        # Single URL Tab
+        self.single_tab = QWidget()
+        self.tabs.addTab(self.single_tab, "Single URL")
+        single_layout = QVBoxLayout(self.single_tab)
+        single_layout.setSpacing(10)
+        single_layout.setContentsMargins(20, 20, 20, 20)
+
         # Logo/Title with emoji
         title_label = QLabel("📺 IPTV to M3U Converter")
         title_font = QFont()
@@ -48,7 +199,7 @@ class MainWindow(QMainWindow):
         title_font.setBold(True)
         title_label.setFont(title_font)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title_label)
+        single_layout.addWidget(title_label)
         
         # URL input section
         url_layout = QHBoxLayout()
@@ -58,21 +209,21 @@ class MainWindow(QMainWindow):
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText("Enter IPTV URL (e.g., http://host:port/get.php?username=...&password=...)")
         url_layout.addWidget(self.url_input)
-        layout.addLayout(url_layout)
+        single_layout.addLayout(url_layout)
 
         # Fetch info button
         self.fetch_btn = QPushButton("🔍 Fetch Server Info")
         self.fetch_btn.clicked.connect(self.fetch_info)
-        layout.addWidget(self.fetch_btn)
+        single_layout.addWidget(self.fetch_btn)
 
         # Info display
         info_label = QLabel("📊 Server Info:")
         info_label.setFont(QFont("", 12, QFont.Weight.Bold))
-        layout.addWidget(info_label)
+        single_layout.addWidget(info_label)
         self.info_text = QTextEdit()
         self.info_text.setReadOnly(True)
         self.info_text.setMaximumHeight(150)
-        layout.addWidget(self.info_text)
+        single_layout.addWidget(self.info_text)
 
         # Generate M3U buttons
         gen_layout = QHBoxLayout()
@@ -88,12 +239,12 @@ class MainWindow(QMainWindow):
         self.vod_btn.clicked.connect(self.generate_vod)
         gen_layout.addWidget(self.vod_btn)
 
-        layout.addLayout(gen_layout)
+        single_layout.addLayout(gen_layout)
 
         # M3U preview
         m3u_label = QLabel("📄 M3U Preview:")
         m3u_label.setFont(QFont("", 12, QFont.Weight.Bold))
-        layout.addWidget(m3u_label)
+        single_layout.addWidget(m3u_label)
 
         # Search input for M3U
         search_layout = QHBoxLayout()
@@ -104,43 +255,47 @@ class MainWindow(QMainWindow):
         self.m3u_search.setPlaceholderText("Search channels by name...")
         self.m3u_search.textChanged.connect(self.filter_m3u)
         search_layout.addWidget(self.m3u_search)
-        layout.addLayout(search_layout)
+        single_layout.addLayout(search_layout)
 
         self.m3u_text = QTextEdit()
         self.m3u_text.setReadOnly(True)
         self.m3u_text.setMaximumHeight(300)
-        layout.addWidget(self.m3u_text)
+        single_layout.addWidget(self.m3u_text)
 
         # Save button
         self.save_btn = QPushButton("💾 Save M3U")
         self.save_btn.clicked.connect(self.save_m3u)
-        layout.addWidget(self.save_btn)
+        single_layout.addWidget(self.save_btn)
 
         # Test channels button
         self.test_btn = QPushButton("✅ Test Channels")
         self.test_btn.clicked.connect(self.test_channels)
         self.test_btn.setEnabled(False)
-        layout.addWidget(self.test_btn)
+        single_layout.addWidget(self.test_btn)
 
         # Remove failed channels button
         self.remove_btn = QPushButton("🗑️ Remove Failed Channels")
         self.remove_btn.clicked.connect(self.remove_failed)
         self.remove_btn.setEnabled(False)
-        layout.addWidget(self.remove_btn)
+        single_layout.addWidget(self.remove_btn)
 
         # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        layout.addWidget(self.progress_bar)
+        single_layout.addWidget(self.progress_bar)
 
         # Test results
         test_label = QLabel("📈 Channel Test Results:")
         test_label.setFont(QFont("", 12, QFont.Weight.Bold))
-        layout.addWidget(test_label)
+        single_layout.addWidget(test_label)
         self.test_results = QLabel("No test performed yet.")
         self.test_results.setStyleSheet("background-color: #3c3c3c; border: 1px solid #555; border-radius: 5px; padding: 10px;")
         self.test_results.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.test_results)
+        single_layout.addWidget(self.test_results)
+
+        # Multi Info Tab
+        self.multi_tab = MultiInfoTab()
+        self.tabs.addTab(self.multi_tab, "Multi Server Info")
 
         self.m3u_content = ""
         self.m3u_lines = []
@@ -421,6 +576,25 @@ def main():
         QProgressBar::chunk {
             background-color: #007acc;
             border-radius: 4px;
+        }
+        QTabWidget::pane {
+            border: 1px solid #555;
+            background-color: #2b2b2b;
+        }
+        QTabBar::tab {
+            background-color: #3c3c3c;
+            color: #ffffff;
+            border: 1px solid #555;
+            padding: 8px 16px;
+            margin-right: 2px;
+            border-radius: 4px 4px 0 0;
+        }
+        QTabBar::tab:selected {
+            background-color: #007acc;
+            color: #ffffff;
+        }
+        QTabBar::tab:hover {
+            background-color: #005a9e;
         }
     """)
     

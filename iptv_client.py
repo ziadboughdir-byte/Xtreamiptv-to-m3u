@@ -71,7 +71,7 @@ class IPTVClient:
             raise Exception(f"HTTP request failed: {e}")
 
     async def get_server_info(self) -> Dict[str, Any]:
-        """Fetch and parse server/user info."""
+        """Fetch and parse server/user info, with fallback for get.php only servers."""
         self.parse_url()
         base_url = self.construct_base_url()
         api_url = f"{base_url}/player_api.php?username={self.username}&password={self.password}"
@@ -79,55 +79,88 @@ class IPTVClient:
         headers = {"Referer": base_url, "Host": self.host}
         
         async with aiohttp.ClientSession() as session:
-            resp_text = await self.fetch(session, api_url, headers=headers)
             try:
-                info = json.loads(resp_text)
-                user_info = info.get("user_info", {})
-                server_info = info.get("server_info", {})
-                
-                max_connections = user_info.get("max_connections", "Unlimited") or "Unlimited"
-                active_connections = user_info.get("active_cons", 0)
-                trial = "Yes" if user_info.get("is_trial") == "1" else "No"
-                expire = user_info.get("exp_date", "Unlimited")
-                if expire and expire != "Unlimited":
+                resp_text = await self.fetch(session, api_url, headers=headers)
+                try:
+                    info = json.loads(resp_text)
+                    if "user_info" in info or "server_info" in info:
+                        user_info = info.get("user_info", {})
+                        server_info = info.get("server_info", {})
+                        
+                        max_connections = user_info.get("max_connections", "Unlimited") or "Unlimited"
+                        active_connections = user_info.get("active_cons", 0)
+                        trial = "Yes" if user_info.get("is_trial") == "1" else "No"
+                        expire = user_info.get("exp_date", "Unlimited")
+                        if expire and expire != "Unlimited":
+                            try:
+                                expire = datetime.datetime.fromtimestamp(int(expire)).strftime("%Y-%m-%d %H:%M:%S")
+                            except ValueError:
+                                expire = "Invalid"
+                        status = user_info.get("status", "Unknown")
+                        
+                        # Fetch total live channels
+                        streams_url = f"{base_url}/player_api.php?username={self.username}&password={self.password}&action=get_live_streams"
+                        streams_resp = await self.fetch(session, streams_url, headers=headers)
+                        streams = json.loads(streams_resp) if streams_resp else []
+                        total_channels = len(streams) if isinstance(streams, list) else 0
+
+                        # Fetch total radios
+                        radios_url = f"{base_url}/player_api.php?username={self.username}&password={self.password}&action=get_radio_streams"
+                        radios_resp = await self.fetch(session, radios_url, headers=headers)
+                        radios = json.loads(radios_resp) if radios_resp else []
+                        total_radios = len(radios) if isinstance(radios, list) else 0
+
+                        # Fetch total VOD
+                        vod_url = f"{base_url}/player_api.php?username={self.username}&password={self.password}&action=get_vod_streams"
+                        vod_resp = await self.fetch(session, vod_url, headers=headers)
+                        vods = json.loads(vod_resp) if vod_resp else []
+                        total_vod = len(vods) if isinstance(vods, list) else 0
+                        
+                        return {
+                            "host": f"{self.scheme}://{self.host}:{self.port}" if self.port != (443 if self.scheme == "https" else 80) else f"{self.scheme}://{self.host}",
+                            "username": self.username,
+                            "password": self.password,  # Note: In real app, don't expose password
+                            "m3u_url": f"{base_url}/get.php?username={self.username}&password={self.password}&type=m3u_plus",
+                            "max_connections": max_connections,
+                            "active_connections": active_connections,
+                            "trial": trial,
+                            "status": status,
+                            "expire": expire,
+                            "total_channels": total_channels,
+                            "total_radios": total_radios,
+                            "total_vod": total_vod,
+                            "source": "player_api"
+                        }
+                    else:
+                        raise ValueError("Invalid player_api response")
+                except json.JSONDecodeError as e:
+                    raise Exception(f"Failed to parse player_api: {e}")
+            except Exception as api_error:
+                if "404" in str(api_error) or "Not Found" in str(api_error):
+                    # Fallback to get.php M3U parsing for basic info
+                    m3u_url = f"{base_url}/get.php?username={self.username}&password={self.password}&type=m3u"
                     try:
-                        expire = datetime.datetime.fromtimestamp(int(expire)).strftime("%Y-%m-%d %H:%M:%S")
-                    except ValueError:
-                        expire = "Invalid"
-                status = user_info.get("status", "Unknown")
-                
-                # Fetch total live channels
-                streams_url = f"{base_url}/player_api.php?username={self.username}&password={self.password}&action=get_live_streams"
-                streams_resp = await self.fetch(session, streams_url, headers=headers)
-                streams = json.loads(streams_resp) if streams_resp else []
-                total_channels = len(streams) if isinstance(streams, list) else 0
-
-                # Fetch total radios
-                radios_url = f"{base_url}/player_api.php?username={self.username}&password={self.password}&action=get_radio_streams"
-                radios_resp = await self.fetch(session, radios_url, headers=headers)
-                radios = json.loads(radios_resp) if radios_resp else []
-                total_radios = len(radios) if isinstance(radios, list) else 0
-
-                # Fetch total VOD
-                vod_url = f"{base_url}/player_api.php?username={self.username}&password={self.password}&action=get_vod_streams"
-                vod_resp = await self.fetch(session, vod_url, headers=headers)
-                vods = json.loads(vod_resp) if vod_resp else []
-                total_vod = len(vods) if isinstance(vods, list) else 0
-                
-                return {
-                    "host": f"{self.scheme}://{self.host}:{self.port}" if self.port != (443 if self.scheme == "https" else 80) else f"{self.scheme}://{self.host}",
-                    "username": self.username,
-                    "password": self.password,  # Note: In real app, don't expose password
-                    "m3u_url": f"{base_url}/get.php?username={self.username}&password={self.password}&type=m3u_plus",
-                    "max_connections": max_connections,
-                    "active_connections": active_connections,
-                    "trial": trial,
-                    "status": status,
-                    "expire": expire,
-                    "total_channels": total_channels,
-                    "total_radios": total_radios,
-                    "total_vod": total_vod
-                }
+                        m3u_content = await self.fetch(session, m3u_url, headers=headers)
+                        lines = m3u_content.strip().split('\n')
+                        total_channels = sum(1 for line in lines if line.startswith('#EXTINF:'))
+                        
+                        return {
+                            "host": f"{self.scheme}://{self.host}:{self.port}" if self.port != (443 if self.scheme == "https" else 80) else f"{self.scheme}://{self.host}",
+                            "username": self.username,
+                            "password": self.password,
+                            "m3u_url": m3u_url,
+                            "total_channels": total_channels,
+                            "total_radios": 0,  # Unknown
+                            "total_vod": 0,  # Unknown
+                            "expire": "Unknown (get.php only)",
+                            "status": "Active (M3U available)",
+                            "source": "get.php fallback",
+                            "note": "Limited info; server lacks player_api.php"
+                        }
+                    except Exception as m3u_error:
+                        raise Exception(f"Player API unavailable, and M3U fetch failed: {m3u_error}. Server may not support this format.")
+                else:
+                    raise api_error
             except json.JSONDecodeError as e:
                 raise Exception(f"Failed to parse server info: {e}")
 
