@@ -84,6 +84,10 @@ class MainWindow(QMainWindow):
         self.radio_btn.clicked.connect(self.generate_radio)
         gen_layout.addWidget(self.radio_btn)
 
+        self.vod_btn = QPushButton("🎥 Generate VOD M3U")
+        self.vod_btn.clicked.connect(self.generate_vod)
+        gen_layout.addWidget(self.vod_btn)
+
         layout.addLayout(gen_layout)
 
         # M3U preview
@@ -195,6 +199,7 @@ class MainWindow(QMainWindow):
 
         self.radio_btn.setEnabled(False)
         self.generate_btn.setEnabled(False)
+        self.vod_btn.setEnabled(False)
         self.worker = Worker(self._generate_radio_async, url)
         self.worker.finished.connect(self._on_generate_finished)
         self.worker.error.connect(self._on_error)
@@ -204,9 +209,28 @@ class MainWindow(QMainWindow):
         self.client = IPTVClient(url)
         return await self.client.generate_radio_m3u()
 
+    def generate_vod(self):
+        url = self.url_input.text().strip()
+        if not url:
+            self.m3u_text.setText("Please enter a URL.")
+            return
+
+        self.vod_btn.setEnabled(False)
+        self.generate_btn.setEnabled(False)
+        self.radio_btn.setEnabled(False)
+        self.worker = Worker(self._generate_vod_async, url)
+        self.worker.finished.connect(self._on_generate_finished)
+        self.worker.error.connect(self._on_error)
+        self.worker.start()
+
+    async def _generate_vod_async(self, url):
+        self.client = IPTVClient(url)
+        return await self.client.generate_vod_m3u()
+
     def _on_generate_finished(self, content):
         self.generate_btn.setEnabled(True)
         self.radio_btn.setEnabled(True)
+        self.vod_btn.setEnabled(True)
         if content:
             self.m3u_content = content
             self.m3u_lines = content.split('\n')
@@ -320,6 +344,8 @@ class MainWindow(QMainWindow):
     def _on_error(self, err):
         self.fetch_btn.setEnabled(True)
         self.generate_btn.setEnabled(True)
+        self.radio_btn.setEnabled(True)
+        self.vod_btn.setEnabled(True)
         self.remove_btn.setEnabled(False)
         self.info_text.setText(f"Error: {err}")
         self.m3u_text.setText("")

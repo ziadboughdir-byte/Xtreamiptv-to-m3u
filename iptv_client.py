@@ -107,6 +107,12 @@ class IPTVClient:
                 radios_resp = await self.fetch(session, radios_url, headers=headers)
                 radios = json.loads(radios_resp) if radios_resp else []
                 total_radios = len(radios) if isinstance(radios, list) else 0
+
+                # Fetch total VOD
+                vod_url = f"{base_url}/player_api.php?username={self.username}&password={self.password}&action=get_vod_streams"
+                vod_resp = await self.fetch(session, vod_url, headers=headers)
+                vods = json.loads(vod_resp) if vod_resp else []
+                total_vod = len(vods) if isinstance(vods, list) else 0
                 
                 return {
                     "host": f"{self.scheme}://{self.host}:{self.port}" if self.port != (443 if self.scheme == "https" else 80) else f"{self.scheme}://{self.host}",
@@ -119,7 +125,8 @@ class IPTVClient:
                     "status": status,
                     "expire": expire,
                     "total_channels": total_channels,
-                    "total_radios": total_radios
+                    "total_radios": total_radios,
+                    "total_vod": total_vod
                 }
             except json.JSONDecodeError as e:
                 raise Exception(f"Failed to parse server info: {e}")
@@ -273,6 +280,56 @@ class IPTVClient:
                     m3u_lines.append(f'#EXTINF:-1 tvg-logo="{stream_icon}" group-title="{cat_name}",{name}')
                     stream_url = f"{base_url}/live/{self.username}/{self.password}/{stream_id}.ts"
                     m3u_lines.append(stream_url)
+            
+            return "\n".join(m3u_lines)
+
+    async def generate_vod_m3u(self) -> str:
+        """Generate M3U playlist content for VOD (movies)."""
+        self.parse_url()
+        base_url = self.construct_base_url()
+        
+        headers = {"Referer": base_url, "Host": self.host}
+        
+        async with aiohttp.ClientSession() as session:
+            # Get VOD categories
+            cat_data = {
+                "username": self.username,
+                "password": self.password,
+                "action": "get_vod_categories"
+            }
+            cat_headers = headers.copy()
+            cat_headers["Content-Type"] = "application/x-www-form-urlencoded; charset=utf-8"
+            
+            cat_url = f"{base_url}/player_api.php"
+            cat_resp = await self.fetch(session, cat_url, "POST", cat_data, cat_headers)
+            categories = json.loads(cat_resp)
+            cat_map = {c["category_id"]: c["category_name"] for c in categories if "category_id" in c and "category_name" in c}
+            
+            # Get VOD streams
+            vod_data = {
+                "username": self.username,
+                "password": self.password,
+                "action": "get_vod_streams"
+            }
+            vod_resp = await self.fetch(session, cat_url, "POST", vod_data, cat_headers)
+            vods = json.loads(vod_resp)
+            
+            m3u_lines = ["#EXTM3U"]
+            for vod in vods:
+                if not isinstance(vod, dict):
+                    continue
+                cat_id = str(vod.get("category_id", ""))
+                cat_name = cat_map.get(cat_id, "Unknown")
+                stream_icon = vod.get("stream_icon", "")
+                name = vod.get("name", "")
+                stream_id = vod.get("stream_id", "")
+                
+                if not (name and stream_id):
+                    continue
+                
+                m3u_lines.append(f'#EXTINF:-1 tvg-logo="{stream_icon}" group-title="{cat_name}",{name}')
+                vod_url = f"{base_url}/movie/{self.username}/{self.password}/{stream_id}.mp4"
+                m3u_lines.append(vod_url)
             
             return "\n".join(m3u_lines)
 

@@ -1,11 +1,11 @@
 # IPTV to M3U Converter
 
-A Python GUI application (PyQt6) to fetch IPTV server information, generate M3U playlists for TV and radios from Xtream Codes-based IPTV servers, with search, edit, test, and auto-clean features.
+A Python GUI application (PyQt6) to fetch IPTV server information, generate M3U playlists for TV, radios, and VOD (movies) from Xtream Codes-based IPTV servers, with search, edit, test, and auto-clean features.
 
 ## Features
 - GUI interface with PyQt6 for easy use
-- Fetch and display server info including total TV channels and radios
-- Generate M3U playlists for live TV and radios (with fallback keyword filtering for radios)
+- Fetch and display server info including total TV channels, radios, and VOD
+- Generate M3U playlists for live TV, radios (with fallback keyword filtering), and VOD/movies
 - Search and filter channels/stations by name
 - Editable M3U preview: remove/add channels manually
 - Test channel accessibility and auto-remove failed ones
@@ -31,7 +31,7 @@ cd iptv-to-m3u
    ```
 3. Enter your IPTV URL in the GUI (e.g., http://host:port/player_api.php?username=USER&password=PASS).
 4. Click "Fetch Server Info" to view details.
-5. Click "Generate TV M3U" or "Generate Radio M3U" to create playlists.
+5. Click "Generate TV M3U", "Generate Radio M3U", or "Generate VOD M3U" to create playlists.
 6. Use search to filter, edit the preview, test channels, remove failed, and save.
 
 ## Output
