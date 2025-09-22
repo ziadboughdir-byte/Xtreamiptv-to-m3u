@@ -3,7 +3,7 @@
 A Python GUI application (PyQt6) to fetch IPTV server information, generate M3U playlists for TV, radios, and VOD (movies) from Xtream Codes-based IPTV servers, with search, edit, test, and auto-clean features.
 
 ## Features
-- GUI with tabs: "Single URL" for full M3U generation and editing, "Multi Server Info" for batch server details from multiple URLs
+- Modern dark-themed GUI with tabs: "Single URL" for full M3U generation and editing, "Multi Server Info" for batch server details from multiple URLs
 - Fetch and display server info including total TV channels, radios, and VOD
 - Generate M3U playlists for live TV, radios (with fallback keyword filtering), and VOD/movies
 - Search and filter channels/stations by name
