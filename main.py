@@ -1,7 +1,8 @@
 import sys
 import asyncio
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLineEdit, QPushButton, QTextEdit, QLabel, QFileDialog, QProgressBar)
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
+                             QLineEdit, QPushButton, QTextEdit, QLabel, QFileDialog, QProgressBar,
+                             QMessageBox)
 from PyQt6.QtCore import pyqtSignal, QThread, Qt
 from PyQt6.QtGui import QFont
 from iptv_client import IPTVClient
@@ -200,7 +201,8 @@ class MainWindow(QMainWindow):
         title_label.setFont(title_font)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         single_layout.addWidget(title_label)
-        
+
+
         # URL input section
         url_layout = QHBoxLayout()
         url_label = QLabel("🔗 URL:")
@@ -296,6 +298,34 @@ class MainWindow(QMainWindow):
         # Multi Info Tab
         self.multi_tab = MultiInfoTab()
         self.tabs.addTab(self.multi_tab, "Multi Server Info")
+
+        # About Tab
+        self.about_tab = QWidget()
+        self.tabs.addTab(self.about_tab, "About")
+        about_layout = QVBoxLayout(self.about_tab)
+        about_layout.setSpacing(20)
+        about_layout.setContentsMargins(20, 20, 20, 20)
+
+        # Developer info
+        dev_label = QLabel("👨‍💻 Developer: ZiadBoughdir")
+        dev_label.setFont(QFont("", 14, QFont.Weight.Bold))
+        dev_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        about_layout.addWidget(dev_label)
+
+        # GitHub link
+        github_label = QLabel('<a href="https://github.com/ziadboughdir-byte" style="color: #007acc;">🔗 GitHub Repository</a>')
+        github_label.setOpenExternalLinks(True)
+        github_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        github_label.setFont(QFont("", 12))
+        about_layout.addWidget(github_label)
+
+        # Version info
+        version_label = QLabel("📦 Version: 1.0.0")
+        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_label.setFont(QFont("", 12))
+        about_layout.addWidget(version_label)
+
+        about_layout.addStretch()  # Push content to top
 
         self.m3u_content = ""
         self.m3u_lines = []
@@ -477,6 +507,7 @@ class MainWindow(QMainWindow):
         self.remove_btn.setEnabled(False)
         self.test_results.setText(f"Removed failed channels. New total: {len(self.working_urls)}")
 
+
     def save_m3u(self):
         edited_content = self.m3u_text.toPlainText().strip()
         if not edited_content:
@@ -510,8 +541,8 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    
-    # Apply global stylesheet for theme
+
+    # Apply original simple styling
     app.setStyleSheet("""
         QMainWindow {
             background-color: #2b2b2b;
@@ -597,7 +628,7 @@ def main():
             background-color: #005a9e;
         }
     """)
-    
+
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
