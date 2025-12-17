@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVB
 from PyQt6.QtCore import pyqtSignal, QThread, Qt
 from PyQt6.QtGui import QFont
 from iptv_client import IPTVClient
+from config_manager import CONFIG
 
 
 class Worker(QThread):
@@ -176,7 +177,11 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("IPTV to M3U Converter")
-        self.setGeometry(100, 100, 800, 600)
+        
+        # Utiliser les dimensions de fenêtre depuis la configuration
+        window_width = CONFIG.get('ui', 'window_width', 1000)
+        window_height = CONFIG.get('ui', 'window_height', 700)
+        self.setGeometry(100, 100, window_width, window_height)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -339,13 +344,13 @@ class MainWindow(QMainWindow):
             return
 
         self.fetch_btn.setEnabled(False)
-        self.worker = Worker(self._fetch_info_async, url)
+        self.worker = Worker(self._fetch_info_async, url, use_cache=True)
         self.worker.finished.connect(self._on_fetch_finished)
         self.worker.error.connect(self._on_error)
         self.worker.start()
 
-    async def _fetch_info_async(self, url):
-        self.client = IPTVClient(url)
+    async def _fetch_info_async(self, url, use_cache=True):
+        self.client = IPTVClient(url, use_cache=use_cache)
         info = await self.client.get_server_info()
         return info
 
@@ -367,13 +372,13 @@ class MainWindow(QMainWindow):
 
         self.generate_btn.setEnabled(False)
         self.radio_btn.setEnabled(False)
-        self.worker = Worker(self._generate_async, url)
+        self.worker = Worker(self._generate_async, url, use_cache=True)
         self.worker.finished.connect(self._on_generate_finished)
         self.worker.error.connect(self._on_error)
         self.worker.start()
 
-    async def _generate_async(self, url):
-        self.client = IPTVClient(url)
+    async def _generate_async(self, url, use_cache=True):
+        self.client = IPTVClient(url, use_cache=use_cache)
         return await self.client.generate_m3u()
 
     def generate_radio(self):
@@ -385,13 +390,13 @@ class MainWindow(QMainWindow):
         self.radio_btn.setEnabled(False)
         self.generate_btn.setEnabled(False)
         self.vod_btn.setEnabled(False)
-        self.worker = Worker(self._generate_radio_async, url)
+        self.worker = Worker(self._generate_radio_async, url, use_cache=True)
         self.worker.finished.connect(self._on_generate_finished)
         self.worker.error.connect(self._on_error)
         self.worker.start()
 
-    async def _generate_radio_async(self, url):
-        self.client = IPTVClient(url)
+    async def _generate_radio_async(self, url, use_cache=True):
+        self.client = IPTVClient(url, use_cache=use_cache)
         return await self.client.generate_radio_m3u()
 
     def generate_vod(self):
@@ -403,13 +408,13 @@ class MainWindow(QMainWindow):
         self.vod_btn.setEnabled(False)
         self.generate_btn.setEnabled(False)
         self.radio_btn.setEnabled(False)
-        self.worker = Worker(self._generate_vod_async, url)
+        self.worker = Worker(self._generate_vod_async, url, use_cache=True)
         self.worker.finished.connect(self._on_generate_finished)
         self.worker.error.connect(self._on_error)
         self.worker.start()
 
-    async def _generate_vod_async(self, url):
-        self.client = IPTVClient(url)
+    async def _generate_vod_async(self, url, use_cache=True):
+        self.client = IPTVClient(url, use_cache=use_cache)
         return await self.client.generate_vod_m3u()
 
     def _on_generate_finished(self, content):
@@ -435,17 +440,17 @@ class MainWindow(QMainWindow):
         self.test_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Indeterminate
-        self.worker = Worker(self._test_async)
+        self.worker = Worker(self._test_async, self.m3u_content)
         self.worker.finished.connect(self._on_test_finished)
         self.worker.error.connect(self._on_error)
         self.worker.progress.connect(self.progress_bar.setValue)
         self.worker.start()
 
-    async def _test_async(self):
+    async def _test_async(self, m3u_content):
         if not self.client:
             url = self.url_input.text().strip()
-            self.client = IPTVClient(url)
-        return await self.client.test_channels(self.m3u_content)
+            self.client = IPTVClient(url, use_cache=True)
+        return await self.client.test_channels(m3u_content)
 
     def _on_test_finished(self, results):
         self.test_btn.setEnabled(True)

@@ -5,19 +5,29 @@ import json
 import platform
 import datetime
 from typing import Optional, Tuple, Dict, List, Any
+from cache import ServerCache
+from config_manager import CONFIG
 
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 class IPTVClient:
-    def __init__(self, url: str):
+    # Cache global partagé entre toutes les instances
+    _global_cache = ServerCache(
+        max_age_seconds=CONFIG.get('cache', 'max_age_seconds', 300),
+        max_items=CONFIG.get('cache', 'max_items', 100)
+    )
+    
+    def __init__(self, url: str, use_cache: bool = True):
         self.url = url
         self.host: Optional[str] = None
         self.port: Optional[int] = None
         self.username: Optional[str] = None
         self.password: Optional[str] = None
         self.scheme: str = "http"
+        self.use_cache = use_cache
+        self.cache_key = None
 
     def parse_url(self) -> Tuple[Optional[str], Optional[int], Optional[str], Optional[str]]:
         """Parse URL to extract host, port, username, password."""
@@ -73,6 +83,15 @@ class IPTVClient:
     async def get_server_info(self) -> Dict[str, Any]:
         """Fetch and parse server/user info, with fallback for get.php only servers."""
         self.parse_url()
+        self.cache_key = f"server_info_{self.host}_{self.username}"
+        
+        # Vérifier le cache si activé
+        if self.use_cache:
+            cached = self._global_cache.get(self.cache_key)
+            if cached:
+                print(f"Cache hit for {self.cache_key}")
+                return cached
+        
         base_url = self.construct_base_url()
         api_url = f"{base_url}/player_api.php?username={self.username}&password={self.password}"
         
@@ -116,10 +135,11 @@ class IPTVClient:
                         vods = json.loads(vod_resp) if vod_resp else []
                         total_vod = len(vods) if isinstance(vods, list) else 0
                         
-                        return {
+                        # Masquer le mot de passe pour la sécurité
+                        info = {
                             "host": f"{self.scheme}://{self.host}:{self.port}" if self.port != (443 if self.scheme == "https" else 80) else f"{self.scheme}://{self.host}",
                             "username": self.username,
-                            "password": self.password,  # Note: In real app, don't expose password
+                            "password": "••••••••",  # Masquer le mot de passe
                             "m3u_url": f"{base_url}/get.php?username={self.username}&password={self.password}&type=m3u_plus",
                             "max_connections": max_connections,
                             "active_connections": active_connections,
@@ -131,6 +151,12 @@ class IPTVClient:
                             "total_vod": total_vod,
                             "source": "player_api"
                         }
+                        
+                        # Stocker dans le cache si activé
+                        if self.use_cache:
+                            self._global_cache.set(self.cache_key, info)
+                        
+                        return info
                     else:
                         raise ValueError("Invalid player_api response")
                 except json.JSONDecodeError as e:
@@ -144,10 +170,11 @@ class IPTVClient:
                         lines = m3u_content.strip().split('\n')
                         total_channels = sum(1 for line in lines if line.startswith('#EXTINF:'))
                         
-                        return {
+                        # Masquer le mot de passe pour la sécurité
+                        info = {
                             "host": f"{self.scheme}://{self.host}:{self.port}" if self.port != (443 if self.scheme == "https" else 80) else f"{self.scheme}://{self.host}",
                             "username": self.username,
-                            "password": self.password,
+                            "password": "••••••••",  # Masquer le mot de passe
                             "m3u_url": m3u_url,
                             "total_channels": total_channels,
                             "total_radios": 0,  # Unknown
@@ -157,6 +184,12 @@ class IPTVClient:
                             "source": "get.php fallback",
                             "note": "Limited info; server lacks player_api.php"
                         }
+                        
+                        # Stocker dans le cache si activé
+                        if self.use_cache:
+                            self._global_cache.set(self.cache_key, info)
+                        
+                        return info
                     except Exception as m3u_error:
                         raise Exception(f"Player API unavailable, and M3U fetch failed: {m3u_error}. Server may not support this format.")
                 else:
@@ -386,6 +419,10 @@ class IPTVClient:
         self.parse_url()
         base_url = self.construct_base_url()
         
+        # Limiter le nombre de tests simultanés pour éviter de surcharger
+        MAX_CONCURRENT_TESTS = CONFIG.get('testing', 'max_concurrent_tests', 10)
+        TIMEOUT_SECONDS = CONFIG.get('testing', 'timeout_seconds', 5)
+        
         # Parse M3U to extract stream URLs (every even line after #EXTINF)
         lines = m3u_content.strip().split('\n')
         stream_urls = []
@@ -413,7 +450,14 @@ class IPTVClient:
                 task = self._test_single_channel(session, url, headers)
                 tasks.append(task)
             
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Limiter le nombre de tests simultanés
+            semaphore = asyncio.Semaphore(MAX_CONCURRENT_TESTS)
+            
+            async def limited_test(task):
+                async with semaphore:
+                    return await task
+            
+            results = await asyncio.gather(*[limited_test(task) for task in tasks], return_exceptions=True)
             for idx, result in enumerate(results):
                 if isinstance(result, Exception):
                     continue

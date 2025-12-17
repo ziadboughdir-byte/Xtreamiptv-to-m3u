@@ -1,0 +1,37 @@
+# Fichiers Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Fichiers de l'éditeur
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Fichiers de test
+htmlcov/
+.tox/
+.cache/
+nosetests.xml
+coverage.xml
+
+# Fichiers de configuration
+*.ini
+*.cfg
+
+# Fichiers de données
+*.db
+*.sqlite
+
+# Fichiers de sauvegarde
+*.backup
+*.bak
+
+# Fichiers de log
+*.log
+
+# Fichiers de l'application
+playlist.m3u
+*.m3u
